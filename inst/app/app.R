@@ -1,4 +1,5 @@
 library(shiny)
+library(jsonlite)
 
 # --- Helpers --------------------------------------------------------------
 
@@ -15,6 +16,35 @@ estimate_max_comparisons <- function(n) {
   # sum(ceiling(log2(k))) for k = 1..(n-1)
   if (n <= 1L) return(0L)
   sum(ceiling(log2(seq_len(n - 1L))))
+}
+
+get_save_state <- function(state) {
+  list(
+    items = state$items,
+    sorted = state$sorted,
+    remaining = state$remaining,
+    current_item = state$current_item,
+    low = state$low,
+    high = state$high,
+    mid = state$mid,
+    battle_num = state$battle_num,
+    max_battles = state$max_battles,
+    comparisons = state$comparisons
+  )
+}
+
+restore_state <- function(state, saved) {
+  state$items <- saved$items
+  state$sorted <- saved$sorted
+  state$remaining <- saved$remaining
+  state$current_item <- saved$current_item
+  state$low <- as.integer(saved$low)
+  state$high <- as.integer(saved$high)
+  state$mid <- as.integer(saved$mid)
+  state$battle_num <- as.integer(saved$battle_num)
+  state$max_battles <- as.integer(saved$max_battles)
+  state$comparisons <- saved$comparisons
+  state$phase <- "battle"
 }
 
 # --- UI -------------------------------------------------------------------
@@ -41,6 +71,11 @@ ui <- fluidPage(
       margin: 0 auto;
       padding-top: 30px;
     }
+    .save-section {
+      margin-top: 20px;
+      padding-top: 15px;
+      border-top: 1px solid #eee;
+    }
   "))),
 
   div(class = "phase-panel",
@@ -57,7 +92,14 @@ ui <- fluidPage(
         placeholder = "pizza\ntacos\nsushi\nburgers"
       ),
       actionButton("start_btn", "Start Sorting", class = "btn-primary btn-lg"),
-      uiOutput("input_error")
+      uiOutput("input_error"),
+      div(class = "save-section",
+        h4("Resume a previous session"),
+        fileInput("load_file", NULL,
+                  accept = c(".rds", ".json"),
+                  buttonLabel = "Load session file",
+                  placeholder = ".rds or .json")
+      )
     ),
 
     # --- Battle phase ---
@@ -68,6 +110,14 @@ ui <- fluidPage(
       fluidRow(
         column(6, actionButton("pick_a", "", class = "btn-default battle-btn")),
         column(6, actionButton("pick_b", "", class = "btn-default battle-btn"))
+      ),
+      div(class = "save-section",
+        fluidRow(
+          column(4, radioButtons("save_format", "Format:",
+                                 choices = c("JSON" = "json", "RDS" = "rds"),
+                                 inline = TRUE)),
+          column(4, downloadButton("save_progress", "Save Progress"))
+        )
       )
     ),
 
@@ -135,6 +185,52 @@ server <- function(input, output, session) {
     start_next_insertion()
   })
 
+  # --- Load session --------------------------------------------------------
+
+  observeEvent(input$load_file, {
+    req(input$load_file)
+    file_path <- input$load_file$datapath
+    file_name <- input$load_file$name
+    ext <- tolower(tools::file_ext(file_name))
+
+    saved <- tryCatch({
+      if (ext == "rds") {
+        readRDS(file_path)
+      } else if (ext == "json") {
+        fromJSON(file_path, simplifyVector = TRUE)
+      } else {
+        stop("Unsupported file type. Please use .rds or .json.")
+      }
+    }, error = function(e) {
+      output$input_error <- renderUI(
+        tags$p(style = "color: red; margin-top: 10px;", e$message)
+      )
+      return(NULL)
+    })
+
+    if (is.null(saved)) return()
+
+    # Validate the saved state has required fields
+    required <- c("items", "sorted", "remaining", "current_item",
+                   "low", "high", "mid", "battle_num", "max_battles")
+    if (!all(required %in% names(saved))) {
+      output$input_error <- renderUI(
+        tags$p(style = "color: red; margin-top: 10px;",
+               "Invalid session file: missing required fields.")
+      )
+      return()
+    }
+
+    output$input_error <- renderUI(NULL)
+    restore_state(state, saved)
+
+    # Update battle buttons for current comparison
+    updateActionButton(session, "pick_a", label = state$current_item)
+    updateActionButton(session, "pick_b", label = state$sorted[state$mid])
+  })
+
+  # --- Battle state machine ------------------------------------------------
+
   start_next_insertion <- function() {
     if (length(state$remaining) == 0L) {
       state$phase <- "results"
@@ -200,6 +296,23 @@ server <- function(input, output, session) {
     state$low <- state$mid + 1L
     advance_battle()
   })
+
+  # --- Save progress -------------------------------------------------------
+
+  output$save_progress <- downloadHandler(
+    filename = function() {
+      fmt <- input$save_format
+      paste0("discerner_session_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".", fmt)
+    },
+    content = function(file) {
+      saved <- get_save_state(state)
+      if (input$save_format == "rds") {
+        saveRDS(saved, file)
+      } else {
+        writeLines(toJSON(saved, auto_unbox = TRUE, pretty = TRUE), file)
+      }
+    }
+  )
 
   # --- Results phase -------------------------------------------------------
 

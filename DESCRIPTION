@@ -7,6 +7,7 @@ Description: Interactively rank a set of items by preference using a binary
     requiring only O(n log n) user interactions instead of comparing every pair.
 License: MIT + file LICENSE
 Imports:
+    jsonlite,
     shiny
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
