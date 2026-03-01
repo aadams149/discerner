@@ -1,2 +1,3 @@
 # Generated manually (run roxygen2::roxygenise() to regenerate)
 export(discerner)
+export(run_discerner_app)

@@ -49,3 +49,16 @@ auto_compare <- function(item_a, item_b, battle_num) {
 
 discerner(c("pizza", "tacos", "sushi"), compare_fn = auto_compare)
 ```
+
+## Shiny app
+
+The package includes a Shiny app for a visual, point-and-click interface:
+
+```r
+library(discerner)
+run_discerner_app()
+```
+
+Enter items in the text area (one per line or comma-separated), click
+"Start Sorting", then pick your preference in each battle. The final
+ranking is displayed as a table with an option to download as CSV.
